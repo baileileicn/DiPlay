@@ -17,7 +17,6 @@ captures/
 
 # Local agent working notes
 /agent_docs/
-.superpowers/
 
 # OS files
 .DS_Store
