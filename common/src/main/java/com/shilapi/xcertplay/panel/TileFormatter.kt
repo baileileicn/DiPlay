@@ -55,7 +55,7 @@ object TileFormatter {
         val field = BydPanelFields.byId[id] ?: return TileReadout.EMPTY
         return when (id) {
             "soc", "fuelPercent", "soh" -> TileReadout(v.roundToInt().toString(), "%", accent = if (v <= 15) TileAccent.WARN else TileAccent.NONE)
-            "remainKwh" -> TileReadout(one(v), "kWh")
+            "remainKwh" -> if (v <= 0.0) TileReadout.EMPTY else TileReadout(one(v), "kWh")
             "evRange", "fuelRange" -> TileReadout(v.roundToInt().toString(), "km")
             "avgConsumption" -> TileReadout(one(v), field.unit())
             "odometer" -> TileReadout(thousands(v.roundToInt()), "km")

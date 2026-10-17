@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.panel
 
 import com.shilapi.xcertplay.host.R
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -76,6 +77,8 @@ class TileFormatterTest {
     @Test fun lowChargeWarns() = assertEquals(TileAccent.WARN, TileFormatter.value("soc", 12.0).accent)
 
     @Test fun kwhKeepsOneDecimal() = assertEquals("25.1", TileFormatter.value("remainKwh", 25.14).primary)
+
+    @Test fun zeroEnergyIsUnanswered() = assertFalse(TileFormatter.value("remainKwh", 0.0).present)
 
     @Test fun pedalCarriesFractionBar() = assertEquals(0.6f, TileFormatter.value("accelPedal", 60.0).fraction!!, 0.001f)
 
