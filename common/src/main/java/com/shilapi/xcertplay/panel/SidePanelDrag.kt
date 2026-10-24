@@ -173,13 +173,13 @@ internal fun DropSlot(model: SidePanelModel, drag: DragState, palette: TilePalet
             .offset { IntOffset(left.roundToInt(), top.roundToInt()) }
             .size(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() }),
     ) {
-        val shape = CornerRadius(22.dp.toPx())
-        drawRoundRect(color = palette.accent.copy(alpha = 0.08f), cornerRadius = shape)
+        val shape = CornerRadius(24.dp.toPx())
+        drawRoundRect(color = palette.accent.copy(alpha = 0.10f), cornerRadius = shape)
         drawRoundRect(
             color = palette.accent,
             style = Stroke(
-                width = 2.dp.toPx(),
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(16.dp.toPx(), 12.dp.toPx())),
+                width = 1.5.dp.toPx(),
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(10.dp.toPx(), 8.dp.toPx())),
             ),
             cornerRadius = shape,
         )

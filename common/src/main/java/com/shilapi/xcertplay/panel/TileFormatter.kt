@@ -23,6 +23,8 @@ data class TileReadout(
     val present: Boolean = true,
     val primaryRes: Int? = null,
     val stale: Boolean = false,
+    /** A state word (open/closed, on/off, buckled) that reads better as a capsule than as a bare value. */
+    val pill: Boolean = false,
 ) {
     companion object {
         val EMPTY = TileReadout("—", present = false)
@@ -36,6 +38,7 @@ data class TileCell(
     val accent: TileAccent = TileAccent.NONE,
     val valueRes: Int? = null,
     val stale: Boolean = false,
+    val pill: Boolean = false,
 ) {
     companion object {
         val EMPTY = TileCell("—", "")
@@ -99,24 +102,27 @@ object TileFormatter {
             "seatHeatDriver", "seatVentDriver", "seatHeatPassenger", "seatVentPassenger" -> level(v)
             "doorFL", "doorFR", "doorRL", "doorRR", "hood" -> openClosed(v)
             "windowFL", "windowFR", "windowRL", "windowRR", "sunroof" ->
-                if (v <= 0.0) TileReadout("Closed", primaryRes = R.string.panel_state_closed)
-                else TileReadout("${v.roundToInt()}%")
+                if (v <= 0.0) TileReadout("CLOSED", primaryRes = R.string.panel_state_closed, pill = true)
+                else TileReadout("${v.roundToInt()}%", pill = true)
             "trunk", "frontTrunk" -> trunk(v.toInt())
             "lockFL" -> TileReadout(
                 if (v == 2.0) "LOCK" else "OPEN",
                 primaryRes = if (v == 2.0) R.string.panel_state_locked else R.string.panel_state_unlocked,
                 accent = if (v == 2.0) TileAccent.GOOD else TileAccent.WARN,
+                pill = true,
             )
             "seatbeltFL", "seatbeltFR", "seatbeltRL", "seatbeltRM", "seatbeltRR" -> TileReadout(
                 if (v == 1.0) "OK" else "—",
                 primaryRes = if (v == 1.0) R.string.panel_state_ok else null,
                 accent = if (v == 1.0) TileAccent.GOOD else TileAccent.WARN,
+                pill = true,
             )
-            "occupancyFL", "occupancyFR", "occupancyRL", "occupancyRM", "occupancyRR" -> TileReadout(if (v == 2.0) "•" else "—", accent = if (v == 2.0) TileAccent.LIVE else TileAccent.NONE)
+            "occupancyFL", "occupancyFR", "occupancyRL", "occupancyRM", "occupancyRR" -> TileReadout(if (v == 2.0) "•" else "—", accent = if (v == 2.0) TileAccent.LIVE else TileAccent.NONE, pill = true)
             "wiperRelay" -> TileReadout(
                 if (v != 0.0) "ON" else "—",
                 primaryRes = if (v != 0.0) R.string.panel_state_on else null,
                 accent = if (v != 0.0) TileAccent.LIVE else TileAccent.NONE,
+                pill = true,
             )
             "keyBatteryStatus" -> TileReadout(
                 if (v == 0.0) "OK" else "LOW",
@@ -133,7 +139,7 @@ object TileFormatter {
     fun cells(fields: List<String>, labels: List<String>, values: Map<String, Double?>): List<TileCell> =
         fields.mapIndexed { index, id ->
             val readout = value(id, values[id])
-            TileCell(readout.primary, labels.getOrElse(index) { "" }, readout.accent, readout.primaryRes)
+            TileCell(readout.primary, labels.getOrElse(index) { "" }, readout.accent, readout.primaryRes, readout.stale, readout.pill)
         }
 
     /** A composite tile: primary field's value, with the secondary shown small beneath it. */
@@ -183,22 +189,22 @@ object TileFormatter {
     }
 
     private fun trunk(code: Int) = when (code) {
-        2 -> TileReadout("SHUT", primaryRes = R.string.panel_state_closed)
-        1 -> TileReadout("OPEN", primaryRes = R.string.panel_state_open, accent = TileAccent.WARN)
-        3 -> TileReadout("MOVE", primaryRes = R.string.panel_state_moving)
+        2 -> TileReadout("SHUT", primaryRes = R.string.panel_state_closed, pill = true)
+        1 -> TileReadout("OPEN", primaryRes = R.string.panel_state_open, accent = TileAccent.WARN, pill = true)
+        3 -> TileReadout("MOVE", primaryRes = R.string.panel_state_moving, pill = true)
         else -> TileReadout("—")
     }
 
     private fun onOff(v: Double) = if (v == 1.0) {
-        TileReadout("ON", primaryRes = R.string.panel_state_on, accent = TileAccent.LIVE)
+        TileReadout("ON", primaryRes = R.string.panel_state_on, accent = TileAccent.LIVE, pill = true)
     } else {
-        TileReadout("—", accent = TileAccent.NONE)
+        TileReadout("—", accent = TileAccent.NONE, pill = true)
     }
 
     private fun openClosed(v: Double) = if (v == 1.0) {
-        TileReadout("OPEN", primaryRes = R.string.panel_state_open, accent = TileAccent.WARN)
+        TileReadout("OPEN", primaryRes = R.string.panel_state_open, accent = TileAccent.WARN, pill = true)
     } else {
-        TileReadout("—", accent = TileAccent.NONE)
+        TileReadout("CLOSED", primaryRes = R.string.panel_state_closed, pill = true)
     }
 
     private fun level(v: Double) = TileReadout(if (v == 0.0) "—" else v.roundToInt().toString(), accent = if (v > 0) TileAccent.LIVE else TileAccent.NONE)

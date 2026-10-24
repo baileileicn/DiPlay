@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.panel
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ScrollState
@@ -15,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,17 +37,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.shilapi.xcertplay.host.R
@@ -69,6 +77,8 @@ data class TilePalette(
     val tileEdit: Color,
     /** The inner hairline that gives a tile its frosted edge, light on dark and dark on light. */
     val tileBorder: Color,
+    /** True for the night theme: surfaces separate by tone, and shadows belong to the light theme. */
+    val night: Boolean = false,
 )
 
 /**
@@ -77,12 +87,6 @@ data class TilePalette(
  * live tile (pedals, speed) is placed, so the values update without the host rebuilding views. Column count
  * follows the panel's own width, so 1/3, 1/2 and 2/3 layouts differ; a long list scrolls rather than clipping.
  */
-/** Grid metrics: one place for the panel's rhythm so density stays consistent. */
-internal const val PANEL_ROW_H_DP = 60
-internal const val PANEL_TALL_H_DP = 126
-internal const val PANEL_HERO_H_DP = 118
-internal const val PANEL_GAP_DP = 6
-
 @Composable
 fun SidePanelPanel(model: SidePanelModel, palette: TilePalette) {
     var drawerOpen by remember { mutableStateOf(false) }
@@ -118,28 +122,6 @@ fun SidePanelPanel(model: SidePanelModel, palette: TilePalette) {
     }
 }
 
-/**
- * A tile's frosted surface: one continuous large corner, a translucent fill the card shows through,
- * and a hairline edge highlight. Drawn with plain shapes so it works on Android 10, where a real
- * backdrop blur (RenderEffect, API 31) is unavailable.
- */
-internal fun Modifier.glassTile(palette: TilePalette, selected: Boolean = false): Modifier {
-    val shape = RoundedCornerShape(22.dp)
-    return this
-        .clip(shape)
-        .background(if (selected) palette.tileEdit else palette.tile)
-        .border(BorderStroke(1.dp, palette.tileBorder), shape)
-}
-
-/** A hero card's surface: brighter fill and an accent edge so the queue's first tile reads as the focus. */
-internal fun Modifier.heroTile(palette: TilePalette): Modifier {
-    val shape = RoundedCornerShape(22.dp)
-    return this
-        .clip(shape)
-        .background(palette.tileEdit)
-        .border(BorderStroke(1.5.dp, palette.accent), shape)
-}
-
 @Composable
 private fun SidePanelGrid(
     model: SidePanelModel,
@@ -152,7 +134,7 @@ private fun SidePanelGrid(
     stepPx: Float,
 ) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(scroll).padding(4.dp),
+        Modifier.fillMaxSize().verticalScroll(scroll).padding(PANEL_PADDING_DP.dp),
         verticalArrangement = Arrangement.spacedBy(PANEL_GAP_DP.dp),
     ) {
         packed.hero?.let { hero ->
@@ -160,8 +142,8 @@ private fun SidePanelGrid(
             if (kind != null) Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(PANEL_HERO_H_DP.dp)
-                    .heroTile(palette)
+                    .height(panelHeroHeight())
+                    .heroTile(palette, kind.group)
                     .tileDrag(kind.id, model, drag, scroll, edgePx, stepPx),
             ) {
                 if (kind.format == TileFormat.VALUE || kind.format == TileFormat.BATTERY || kind.format == TileFormat.CLOCK) {
@@ -172,23 +154,59 @@ private fun SidePanelGrid(
                 if (drag.liftedKind != null) DragAffordances(palette, hero.size)
             }
         }
-        packed.rest.groupBy { it.row }.forEach { (_, row) ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PANEL_GAP_DP.dp)) {
-                row.sortedBy { it.col }.forEach { item ->
-                    val kind = TileCatalog.byId[item.widget.kind]
-                    if (kind != null) Box(
-                        Modifier
-                            .weight(item.colSpan.toFloat())
-                            .height(if (item.rowSpan > 1) PANEL_TALL_H_DP.dp else PANEL_ROW_H_DP.dp)
-                            .glassTile(palette)
-                            .tileDrag(kind.id, model, drag, scroll, edgePx, stepPx),
-                    ) {
-                        TileContent(kind, item, palette)
-                        if (drag.liftedKind != null) DragAffordances(palette, item.size)
-                    }
+        TileGridBody(packed.rest, columns) { item ->
+            val kind = TileCatalog.byId[item.widget.kind]
+            if (kind != null) Box(
+                Modifier
+                    .fillMaxSize()
+                    .glassTile(palette)
+                    .tileDrag(kind.id, model, drag, scroll, edgePx, stepPx),
+            ) {
+                TileContent(kind, item, palette)
+                if (drag.liftedKind != null) DragAffordances(palette, item.size)
+            }
+        }
+    }
+}
+
+/**
+ * The tile grid with true row and column spans: the packer already reserved a spanning tile's cells, so
+ * each tile is placed at its (row, col) with the track it covers, and a tall tile's second row stays open
+ * for the tiles packed beside it. A Row-per-row layout would push everything below a tall tile instead.
+ */
+@Composable
+internal fun TileGridBody(
+    items: List<SidePanelLayout.Placed>,
+    columns: Int,
+    content: @Composable (SidePanelLayout.Placed) -> Unit,
+) {
+    if (items.isEmpty()) return
+    val gap = PANEL_GAP_DP.dp
+    val rowH = panelRowHeight()
+    val rows = items.maxOf { it.row + it.rowSpan }
+    BoxWithConstraints(Modifier.fillMaxWidth().height(rowH * rows + gap * (rows - 1))) {
+        val trackW = (maxWidth - gap * (columns - 1)) / columns
+        Layout(content = { items.forEach { content(it) } }) { measurables, constraints ->
+            val gapPx = gap.toPx()
+            val trackPx = trackW.toPx()
+            val rowPx = rowH.toPx()
+            val placeables = measurables.mapIndexed { index, measurable ->
+                val item = items[index]
+                measurable.measure(
+                    Constraints.fixed(
+                        (trackPx * item.colSpan + gapPx * (item.colSpan - 1)).roundToInt(),
+                        (rowPx * item.rowSpan + gapPx * (item.rowSpan - 1)).roundToInt(),
+                    ),
+                )
+            }
+            layout(constraints.maxWidth, constraints.maxHeight) {
+                placeables.forEachIndexed { index, placeable ->
+                    val item = items[index]
+                    placeable.place(
+                        ((trackPx + gapPx) * item.col).roundToInt(),
+                        ((rowPx + gapPx) * item.row).roundToInt(),
+                    )
                 }
-                val used = row.sumOf { it.colSpan }
-                if (used < columns) Spacer(Modifier.weight((columns - used).toFloat()))
             }
         }
     }
@@ -222,39 +240,47 @@ private fun BoxScope.DragAffordances(palette: TilePalette, size: TileSize) {
     )
 }
 
-/** The hero's content for single-value tiles: label line, oversized value with inline unit, subline and arc. */
+/** The hero's content: category wash and watermark behind a label row, an oversized value and a capacity bar. */
 @Composable
 private fun HeroValueTile(kind: TileKind, palette: TilePalette) {
     val readout = readoutFor(kind)
-    val accent = accentColor(readout, palette)
-    val strip = readout.present && !readout.stale && readout.accent != TileAccent.NONE
-    Row(Modifier.fillMaxSize()) {
-        if (strip) {
-            Box(
-                Modifier.width(3.dp).fillMaxHeight().padding(vertical = 22.dp)
-                    .clip(RoundedCornerShape(3.dp)).background(accent),
-            )
-        }
-        Column(Modifier.fillMaxSize().padding(start = if (strip) 14.dp else 16.dp, top = 12.dp, end = 16.dp, bottom = 12.dp)) {
-            Text(string(kind.titleRes), color = palette.secondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(2.dp))
-            val primary = readout.primaryRes
-            val primaryText = if (primary != null) string(primary) else readout.primary
-            val unitColor = if (readout.accent == TileAccent.NONE) palette.secondary else accent
+    val hue = kind.group.hue(palette.night)
+    val accent = accentColor(readout, palette, kind.group)
+    val primary = readout.primaryRes
+    val primaryText = if (primary != null) string(primary) else readout.primary
+    val unitColor = if (readout.accent == TileAccent.NONE) palette.secondary else accent
+    Box(Modifier.fillMaxSize()) {
+        Image(
+            painterResource(kind.group.iconRes()),
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(hue),
+            alpha = 0.07f,
+            modifier = Modifier.align(Alignment.BottomEnd).offset(x = 14.dp, y = 18.dp).size(104.dp),
+        )
+        Column(Modifier.fillMaxSize().padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconBadge(kind.group, palette, size = 32.dp, glyph = 18.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    string(kind.titleRes).uppercase(),
+                    style = PanelType.label,
+                    color = palette.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Spacer(Modifier.weight(1f))
             Text(
-                valueWithUnit(primaryText, readout.unit, unitColor),
+                valueWithUnit(primaryText, readout.unit, unitColor, unitSize = 14.sp),
+                style = PanelType.hero(),
                 color = accent,
-                fontSize = 36.sp,
-                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            readout.secondary?.let { Text(it, color = palette.secondary, fontSize = 13.sp, maxLines = 1) }
+            readout.secondary?.let { if (readout.fraction == null) Text(it, color = palette.secondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             readout.fraction?.let { fraction ->
-                Spacer(Modifier.height(6.dp))
-                Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(palette.secondary.copy(alpha = 0.25f))) {
-                    Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(accent))
-                }
+                Spacer(Modifier.height(10.dp))
+                CapacityBar(fraction, accent, 6.dp)
             }
         }
     }
@@ -283,60 +309,71 @@ private fun TileContent(kind: TileKind, item: SidePanelLayout.Placed, palette: T
 }
 
 /**
- * A single-value tile: label and value share one line in a short row; a tall tile stacks a 10 sp
- * label over a 24 sp value with the subline and fraction bar beneath. Status strip and stale
- * dimming follow the same rules as before.
+ * A single-value tile: a tinted icon badge and an uppercase label share a row with the value; a tall
+ * tile stacks the same parts over a subline and a capacity bar. A live signal washes the whole tile
+ * with its category colour, so an active tile reads at a glance without every tile shouting.
  */
 @Composable
 private fun ValueTile(kind: TileKind, item: SidePanelLayout.Placed, palette: TilePalette) {
     val readout = readoutFor(kind)
-    val accent = accentColor(readout, palette)
-    val strip = readout.present && !readout.stale && readout.accent != TileAccent.NONE
+    val accent = accentColor(readout, palette, kind.group)
+    val active = readout.present && !readout.stale && readout.accent == TileAccent.LIVE
     val primary = readout.primaryRes
     val primaryText = if (primary != null) string(primary) else readout.primary
     val unitColor = if (readout.accent == TileAccent.NONE) palette.secondary else accent
-    Row(Modifier.fillMaxSize()) {
-        if (strip) {
-            Box(
-                Modifier.width(3.dp).fillMaxHeight().padding(vertical = 12.dp)
-                    .clip(RoundedCornerShape(3.dp)).background(accent),
-            )
+    Box(Modifier.fillMaxSize()) {
+        if (active) {
+            Box(Modifier.matchParentSize().background(kind.group.hue(palette.night).copy(alpha = 0.10f)))
         }
         if (item.rowSpan == 1) {
             Row(
-                Modifier.fillMaxSize().padding(start = if (strip) 8.dp else 10.dp, end = 10.dp),
+                Modifier.fillMaxSize().padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(string(kind.titleRes), color = palette.secondary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    valueWithUnit(primaryText, readout.unit, unitColor),
-                    color = accent,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.End,
-                    modifier = Modifier.weight(1f),
-                )
+                IconBadge(kind.group, palette, size = 28.dp, glyph = 16.dp)
+                Spacer(Modifier.width(9.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        string(kind.titleRes).uppercase(),
+                        style = PanelType.label,
+                        color = palette.secondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        valueWithUnit(primaryText, readout.unit, unitColor, unitSize = 12.sp),
+                        style = PanelType.standard(),
+                        color = accent,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         } else {
-            Column(Modifier.fillMaxSize().padding(start = if (strip) 8.dp else 10.dp, top = 8.dp, end = 10.dp, bottom = 8.dp)) {
-                Text(string(kind.titleRes), color = palette.secondary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    valueWithUnit(primaryText, readout.unit, unitColor),
-                    color = accent,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                readout.secondary?.let { Text(it, color = palette.secondary, fontSize = 12.sp, maxLines = 1) }
-                readout.fraction?.let { fraction ->
-                    Spacer(Modifier.height(4.dp))
-                    Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(palette.secondary.copy(alpha = 0.25f))) {
-                        Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(accent))
+            Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconBadge(kind.group, palette, size = 26.dp, glyph = 15.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        string(kind.titleRes).uppercase(),
+                        style = PanelType.label,
+                        color = palette.secondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Column {
+                    Text(
+                        valueWithUnit(primaryText, readout.unit, unitColor, unitSize = 12.sp),
+                        style = PanelType.tall(),
+                        color = accent,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    readout.secondary?.let { Text(it, color = palette.secondary, fontSize = 12.sp, maxLines = 1) }
+                    readout.fraction?.let { fraction ->
+                        Spacer(Modifier.height(8.dp))
+                        CapacityBar(fraction, accent, 6.dp)
                     }
                 }
             }
@@ -348,18 +385,18 @@ private fun ValueTile(kind: TileKind, item: SidePanelLayout.Placed, palette: Til
  * The big value with its unit set small on the same line, so the number keeps the visual weight:
  * "120 km/h", "63%". The percent sign hugs its number; other units get a space.
  */
-private fun valueWithUnit(primary: String, unit: String, unitColor: Color): AnnotatedString {
+private fun valueWithUnit(primary: String, unit: String, unitColor: Color, unitSize: TextUnit): AnnotatedString {
     if (unit.isEmpty()) return AnnotatedString(primary)
     val glue = if (unit == "%") "" else " "
     return buildAnnotatedString {
         append(primary)
-        withStyle(SpanStyle(fontSize = 13.sp, fontWeight = FontWeight.Normal, color = unitColor)) {
+        withStyle(SpanStyle(fontSize = unitSize, fontWeight = FontWeight.Normal, color = unitColor)) {
             append(glue + unit)
         }
     }
 }
 
-/** A grouped tile: each signal shown as a value over its short position label (FL, H/V, F/R...), laid out 2+rest when tall. */
+/** A grouped tile: a badge header and one labelled cell per signal; state signals become pills. */
 @Composable
 private fun MultiTile(kind: TileKind, item: SidePanelLayout.Placed, palette: TilePalette) {
     val reads = kind.fields.associateWith { readValue(it) }
@@ -367,34 +404,117 @@ private fun MultiTile(kind: TileKind, item: SidePanelLayout.Placed, palette: Til
         .mapIndexed { index, cell ->
             if (reads.getValue(kind.fields[index]).second) cell.copy(stale = true) else cell
         }
-    val rows = if (item.rowSpan > 1) listOf(cells.take(2), cells.drop(2)).filter { it.isNotEmpty() } else listOf(cells)
     val big = item.rowSpan > 1
-    Column(Modifier.fillMaxSize().padding(if (big) 10.dp else 6.dp), verticalArrangement = Arrangement.spacedBy(if (big) 5.dp else 1.dp)) {
-        Text(string(kind.titleRes), color = palette.secondary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        rows.forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                row.forEach { cell ->
-                    val value = cell.valueRes
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            if (value != null) string(value) else cell.value,
-                            color = when {
-                                cell.stale -> palette.secondary
-                                cell.accent == TileAccent.WARN -> palette.warn
-                                cell.accent == TileAccent.GOOD -> palette.good
-                                cell.accent == TileAccent.LIVE -> palette.accent
-                                else -> palette.primary
-                            },
-                            fontSize = if (big) 20.sp else 17.sp,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (cell.label.isNotEmpty()) Text(cell.label, color = palette.secondary, fontSize = 10.sp, maxLines = 1)
+    val rows = if (big || cells.size > 3) {
+        listOf(cells.take(2), cells.drop(2)).filter { it.isNotEmpty() }
+    } else {
+        listOf(cells)
+    }
+    val active = cells.any { it.accent == TileAccent.LIVE && !it.stale }
+    Box(Modifier.fillMaxSize()) {
+        if (active) {
+            Box(Modifier.matchParentSize().background(kind.group.hue(palette.night).copy(alpha = 0.10f)))
+        }
+        Column(
+            Modifier.fillMaxSize().padding(if (big) 14.dp else 8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconBadge(kind.group, palette, size = if (big) 24.dp else 20.dp, glyph = if (big) 14.dp else 12.dp)
+                Spacer(Modifier.width(7.dp))
+                Text(
+                    string(kind.titleRes).uppercase(),
+                    style = PanelType.label,
+                    color = palette.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Column(
+                Modifier.fillMaxWidth().weight(1f),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                rows.forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(if (big) 8.dp else 4.dp)) {
+                        row.forEach { cell ->
+                            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                MultiCell(cell, palette, kind.group, big)
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun MultiCell(cell: TileCell, palette: TilePalette, group: TileGroup, big: Boolean) {
+    val color = when {
+        cell.stale -> palette.secondary
+        cell.accent == TileAccent.WARN -> panelWarn(palette.night)
+        cell.accent == TileAccent.GOOD -> panelGood(palette.night)
+        cell.accent == TileAccent.LIVE -> group.hue(palette.night)
+        else -> palette.primary
+    }
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.heightIn(min = if (big) 26.dp else 24.dp), contentAlignment = Alignment.Center) {
+            if (cell.pill) {
+                StatePill(cell, color, palette, big)
+            } else {
+                Text(
+                    cell.valueRes?.let { string(it) } ?: cell.value,
+                    style = PanelType.cell(),
+                    color = color,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (cell.label.isNotEmpty()) {
+            Spacer(Modifier.height(3.dp))
+            Text(cell.label, style = PanelType.cellLabel, color = palette.secondary, maxLines = 1)
+        }
+    }
+}
+
+/** A state cell as a tinted capsule; a seat's bullet or a missing value draws as a filled or hollow dot. */
+@Composable
+private fun StatePill(cell: TileCell, color: Color, palette: TilePalette, big: Boolean) {
+    val neutral = cell.accent == TileAccent.NONE || cell.stale
+    val text = cell.valueRes?.let { string(it) } ?: cell.value
+    if (text == "•" || text == "—") {
+        val filled = text == "•"
+        Box(
+            Modifier
+                .size(if (big) 12.dp else 10.dp)
+                .clip(CircleShape)
+                .background(if (filled) color else Color.Transparent)
+                .border(BorderStroke(1.5.dp, if (filled) color else palette.tileBorder), CircleShape),
+        )
+        return
+    }
+    val tint = if (neutral) palette.secondary else color
+    Text(
+        text.uppercase(),
+        fontSize = if (big) 10.sp else 9.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.3.sp,
+        color = tint,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .clip(RoundedCornerShape(7.dp))
+            .background(tint.copy(alpha = 0.14f))
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+    )
+}
+
+@Composable
+private fun CapacityBar(fraction: Float, color: Color, height: Dp) {
+    val shape = RoundedCornerShape(height / 2)
+    Box(Modifier.fillMaxWidth().height(height).clip(shape).background(color.copy(alpha = 0.18f))) {
+        Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().clip(shape).background(color))
     }
 }
 
@@ -406,14 +526,25 @@ private fun MultiTile(kind: TileKind, item: SidePanelLayout.Placed, palette: Til
 @Composable
 private fun SystemTile(kind: TileKind, item: SidePanelLayout.Placed, palette: TilePalette) {
     val reading = SystemStatus.latest()
-    Column(Modifier.fillMaxSize().padding(if (item.rowSpan > 1) 10.dp else 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(string(kind.titleRes), color = palette.secondary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val big = item.rowSpan > 1
+    Column(Modifier.fillMaxSize().padding(if (big) 14.dp else 10.dp), verticalArrangement = Arrangement.spacedBy(if (big) 6.dp else 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconBadge(kind.group, palette, size = if (big) 24.dp else 20.dp, glyph = if (big) 14.dp else 12.dp)
+            Spacer(Modifier.width(7.dp))
+            Text(
+                string(kind.titleRes).uppercase(),
+                style = PanelType.label,
+                color = palette.secondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         if (reading == null) {
-            Text("—", color = palette.primary, fontSize = 22.sp, fontWeight = FontWeight.Medium)
+            Text("—", style = PanelType.cell(), color = palette.secondary)
         } else {
-            loadRow("CPU", "${reading.cpuPercent.roundToInt()}%", reading.cpuPercent / 100.0, palette, item.size == TileSize.LARGE)
+            loadRow("CPU", "${reading.cpuPercent.roundToInt()}%", reading.cpuPercent / 100.0, palette, big)
             val memFraction = if (reading.memTotalGb > 0.0) reading.memUsedGb / reading.memTotalGb else 0.0
-            loadRow("RAM", "%.1f/%.0f".format(reading.memUsedGb, reading.memTotalGb), memFraction, palette, item.size == TileSize.LARGE)
+            loadRow("RAM", "%.1f/%.0f".format(reading.memUsedGb, reading.memTotalGb), memFraction, palette, big)
             val detail = buildList {
                 reading.coreFreqMhz.maxOrNull()?.let { add(it / 1000.0 to "GHz") }
                 reading.tempC?.let { add(it to "°C") }
@@ -421,7 +552,7 @@ private fun SystemTile(kind: TileKind, item: SidePanelLayout.Placed, palette: Ti
             if (detail.isNotEmpty()) {
                 Text(
                     detail.joinToString(" · ") { (value, unit) -> if (unit == "GHz") "%.2f GHz".format(value) else "%.0f°C".format(value) },
-                    color = palette.secondary, fontSize = 12.sp, maxLines = 1,
+                    color = palette.secondary, fontSize = 11.sp, maxLines = 1,
                 )
             }
         }
@@ -431,30 +562,41 @@ private fun SystemTile(kind: TileKind, item: SidePanelLayout.Placed, palette: Ti
 @Composable
 private fun loadRow(label: String, value: String, fraction: Double, palette: TilePalette, big: Boolean) {
     val hot = fraction >= 0.85
+    val color = if (hot) panelWarn(palette.night) else palette.accent
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(label, color = palette.secondary, fontSize = 11.sp, modifier = Modifier.weight(1f))
-            Text(value, color = if (hot) palette.warn else palette.primary, fontSize = if (big) 17.sp else 14.sp, fontWeight = FontWeight.Medium)
+            Text(label, style = PanelType.cellLabel, color = palette.secondary, modifier = Modifier.weight(1f))
+            Text(value, color = if (hot) color else palette.primary, fontSize = if (big) 16.sp else 13.sp, fontWeight = FontWeight.SemiBold)
         }
-        Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(palette.secondary.copy(alpha = 0.25f))) {
+        Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(color.copy(alpha = 0.18f))) {
             Box(Modifier.fillMaxWidth(fraction.coerceIn(0.0, 1.0).toFloat()).fillMaxHeight()
-                .clip(RoundedCornerShape(3.dp)).background(if (hot) palette.warn else palette.accent))
+                .clip(RoundedCornerShape(2.dp)).background(color))
         }
     }
 }
 
-/** The 2×2 tyre block the panel showed before, kept as one tile: front pair on top, rear pair below. */
+/** The 2×2 tyre block: front pair on top, rear pair below, each with pressure over temperature. */
 @Composable
 private fun TyresTile(kind: TileKind, item: SidePanelLayout.Placed, palette: TilePalette) {
     val tyres = BydTyreStatus.latest()
     val big = item.size == TileSize.LARGE || item.size == TileSize.TALL
-    Column(Modifier.fillMaxSize().padding(if (big) 10.dp else 6.dp)) {
-        Text(string(kind.titleRes), color = palette.secondary, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.height(if (big) 6.dp else 3.dp))
+    Column(Modifier.fillMaxSize().padding(if (big) 14.dp else 10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconBadge(kind.group, palette, size = if (big) 24.dp else 20.dp, glyph = if (big) 14.dp else 12.dp)
+            Spacer(Modifier.width(7.dp))
+            Text(
+                string(kind.titleRes).uppercase(),
+                style = PanelType.label,
+                color = palette.secondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.height(if (big) 10.dp else 4.dp))
         if (tyres == null) {
-            Text("—", color = palette.primary, fontSize = 22.sp, fontWeight = FontWeight.Medium)
+            Text("—", style = PanelType.cell(), color = palette.secondary)
         } else {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(if (big) 8.dp else 3.dp)) {
                 tyrePair(tyres, 0, 1, palette, big)
                 tyrePair(tyres, 2, 3, palette, big)
             }
@@ -474,19 +616,18 @@ private fun tyrePair(tyres: BydTyreReading, left: Int, right: Int, palette: Tile
 private fun tyreCell(tyres: BydTyreReading, index: Int, palette: TilePalette, big: Boolean) {
     val pressure = tyres.pressureKpa.getOrNull(index)?.let { "$it" } ?: "—"
     Column {
-        Text(pressure, color = palette.primary, fontSize = if (big) 18.sp else 14.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+        Text(pressure, style = if (big) PanelType.cell() else PanelType.standard(), color = palette.primary, maxLines = 1)
         tyres.temperatureC.getOrNull(index)?.let { if (big) Text("$it°C", color = palette.secondary, fontSize = 11.sp, maxLines = 1) }
     }
 }
 
-private fun accentColor(readout: TileReadout, palette: TilePalette): Color = when {
+private fun accentColor(readout: TileReadout, palette: TilePalette, group: TileGroup): Color = when {
     readout.stale -> palette.secondary
-    else -> when (readout.accent) {
-        TileAccent.WARN -> palette.warn
-        TileAccent.GOOD -> palette.good
-        TileAccent.LIVE -> palette.accent
-        TileAccent.NONE -> if (readout.present) palette.primary else palette.secondary
-    }
+    readout.accent == TileAccent.WARN -> panelWarn(palette.night)
+    readout.accent == TileAccent.GOOD -> panelGood(palette.night)
+    readout.accent == TileAccent.LIVE -> group.hue(palette.night)
+    readout.present -> palette.primary
+    else -> palette.secondary
 }
 
 /**

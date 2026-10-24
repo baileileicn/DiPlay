@@ -100,7 +100,18 @@ class TileFormatterTest {
         assertEquals(TileAccent.WARN, readout.accent)
     }
 
-    @Test fun closedDoorIsDash() = assertEquals("—", TileFormatter.value("doorFL", 0.0).primary)
+    @Test fun closedDoorIsClosed() {
+        val readout = TileFormatter.value("doorFL", 0.0)
+        assertEquals("CLOSED", readout.primary)
+        assertEquals(R.string.panel_state_closed, readout.primaryRes)
+    }
+
+    @Test fun stateCellsCarryPillFlag() {
+        assertTrue(TileFormatter.value("doorFL", 1.0).pill)
+        assertTrue(TileFormatter.value("windowFL", 0.0).pill)
+        assertTrue(TileFormatter.value("seatbeltFL", 1.0).pill)
+        assertFalse(TileFormatter.value("soc", 55.0).pill)
+    }
 
     @Test fun trunkClosedIsShut() = assertEquals("SHUT", TileFormatter.value("trunk", 2.0).primary)
 
@@ -124,8 +135,10 @@ class TileFormatterTest {
         )
         assertEquals("OPEN", cells[0].value)
         assertEquals("FL", cells[0].label)
-        assertEquals("—", cells[1].value)
+        assertEquals("CLOSED", cells[1].value)
         assertEquals("FR", cells[1].label)
+        assertTrue(cells[0].pill)
+        assertTrue(cells[1].pill)
     }
 
     @Test fun multiTileAbsentValueIsDash() {

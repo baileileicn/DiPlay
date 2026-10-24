@@ -2213,19 +2213,20 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun sidePanelPalette(): com.shilapi.xcertplay.panel.TilePalette {
         val p = overlayPalette
         fun rgb(value: Int) = androidx.compose.ui.graphics.Color(value)
-        // Tiles are frosted glass: a translucent fill the card shows through, edged with a hairline.
-        // The day tint is a light neutral so a tile still reads against the white card; night is a raised dark.
-        val glass = if (appNight) 0xFF2C2C34.toInt() else 0xFF8A8A8E.toInt()
-        val glassEdge = if (appNight) 0x1FFFFFFF else 0x1F000000
+        // iOS material: night tiles are a lift of white over the black card, day tiles a faint black
+        // wash over the white one, so a surface reads by tone rather than by a drawn border.
+        val glass = if (appNight) 0xFFFFFFFF.toInt() else 0xFF000000.toInt()
+        val glassEdge = if (appNight) 0x1FFFFFFF else 0x14000000
         return com.shilapi.xcertplay.panel.TilePalette(
             secondary = rgb(p.overlaySecondaryText),
             primary = rgb(p.overlayPrimaryText),
             accent = rgb(p.overlayAccent),
             warn = rgb(p.overlayDanger),
             good = rgb(p.overlayOnAccent),
-            tile = rgb(glass).copy(alpha = if (appNight) 0.62f else 0.22f),
-            tileEdit = rgb(if (appNight) glass else 0xFFFFFFFF.toInt()).copy(alpha = 0.96f),
+            tile = rgb(glass).copy(alpha = if (appNight) 0.08f else 0.05f),
+            tileEdit = rgb(if (appNight) 0xFF2C2C2E.toInt() else 0xFFFFFFFF.toInt()).copy(alpha = 0.96f),
             tileBorder = rgb(glassEdge),
+            night = appNight,
         )
     }
 
